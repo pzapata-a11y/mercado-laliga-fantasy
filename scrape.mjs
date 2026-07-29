@@ -49,6 +49,22 @@ async function main() {
     .find('thead th')
     .each((_, th) => headers.push($(th).text().trim().replace(/\s+/g, ' ')));
 
+  // Algunas celdas contienen varios valores "apelmazados" internamente
+  // (ej. nombre completo + apodo + equipo, o los 6 periodos temporales
+  // de Diferencia/% Dif/Valor). En vez de adivinar el formato exacto,
+  // si la celda tiene varios elementos hijos los separamos con " | "
+  // para poder partirlos fácilmente después con SPLIT() en Sheets/Excel.
+  const extractCell = (td) => {
+    const children = $(td).children().toArray();
+    if (children.length > 1) {
+      const parts = children
+        .map((el) => $(el).text().trim().replace(/\s+/g, ' '))
+        .filter((t) => t.length > 0);
+      if (parts.length > 1) return parts.join(' | ');
+    }
+    return $(td).text().trim().replace(/\s+/g, ' ');
+  };
+
   // Filas
   const rows = [];
   $(bestTable)
@@ -57,13 +73,22 @@ async function main() {
       const cells = [];
       $(tr)
         .find('td')
-        .each((_, td) => cells.push($(td).text().trim().replace(/\s+/g, ' ')));
+        .each((_, td) => cells.push(extractCell(td)));
       if (cells.length) rows.push(cells);
     });
 
   console.log(`Filas encontradas: ${rows.length}`);
   console.log('Cabeceras detectadas:', headers);
   console.log('Ejemplo primera fila:', rows[0]);
+
+  // --- DEPURACIÓN TEMPORAL ---
+  // Imprimimos el HTML crudo de la primera fila de datos para buscar
+  // atributos ocultos (class, data-posicion, etc.) que no se ven como
+  // texto pero que la web usa internamente para el filtro de posiciones.
+  const firstRow = $(bestTable).find('tbody tr').first();
+  console.log('--- HTML crudo de la primera fila (para buscar la posición) ---');
+  console.log($.html(firstRow));
+  console.log('--- fin HTML crudo ---');
 
   if (rows.length < 50) {
     console.warn(
