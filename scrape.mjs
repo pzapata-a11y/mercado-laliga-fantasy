@@ -84,6 +84,52 @@ async function main() {
   fs.writeFileSync(outPath, csvLines.join('\n'), 'utf-8');
 
   console.log(`Guardado: data/mercado_${today}.csv`);
+
+  // --- Histórico acumulativo (una fila por jugador y día, con columna Fecha) ---
+  // Este es el archivo pensado para conectar con Google Sheets vía IMPORTDATA,
+  // ya que su URL nunca cambia y va creciendo cada día.
+  const historicoPath = path.join(outDir, 'historico.csv');
+  const historicoHeader = ['Fecha', ...headerRow];
+
+  let previousBody = [];
+  if (fs.existsSync(historicoPath)) {
+    const existingLines = fs.readFileSync(historicoPath, 'utf-8').split('\n').filter(Boolean);
+    previousBody = existingLines.slice(1); // todo menos la cabecera
+    // Si se re-ejecuta el mismo día (ej. relanzas el workflow a mano),
+    // quitamos las filas de hoy para no duplicar.
+    const todayPrefix = csvEscape(today) + ',';
+    previousBody = previousBody.filter((line) => !line.startsWith(todayPrefix));
+  }
+
+  const newBody = rows.map((r) => [today, ...r].map(csvEscape).join(','));
+  const fullBody = [...previousBody, ...newBody];
+  const historicoCsv = [historicoHeader.map(csvEscape).join(','), ...fullBody].join('\n');
+  fs.writeFileSync(historicoPath, historicoCsv, 'utf-8');
+
+  console.log(`Histórico completo actualizado: ${fullBody.length} filas totales en data/historico.csv`);
+
+  // --- Versión "ventana móvil" para Google Sheets ---
+  // Este archivo SOLO guarda los últimos N días, así su tamaño se mantiene
+  // estable para siempre y Sheets no se ralentiza aunque pasen meses/años.
+  // El histórico completo (sin recortar) sigue disponible en historico.csv.
+  const DASHBOARD_WINDOW_DAYS = 90; // ajusta este número si quieres más o menos ventana
+
+  const cutoff = new Date();
+  cutoff.setUTCDate(cutoff.getUTCDate() - DASHBOARD_WINDOW_DAYS);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+
+  const dashboardBody = fullBody.filter((line) => {
+    const fecha = line.split(',')[0].replace(/^"|"$/g, '');
+    return fecha >= cutoffStr;
+  });
+
+  const dashboardPath = path.join(outDir, 'historico_dashboard.csv');
+  const dashboardCsv = [historicoHeader.map(csvEscape).join(','), ...dashboardBody].join('\n');
+  fs.writeFileSync(dashboardPath, dashboardCsv, 'utf-8');
+
+  console.log(
+    `Dashboard (últimos ${DASHBOARD_WINDOW_DAYS} días): ${dashboardBody.length} filas en data/historico_dashboard.csv`
+  );
 }
 
 function csvEscape(value) {
