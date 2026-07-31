@@ -150,39 +150,51 @@ async function main() {
     return plain();
   };
 
-  // Cabecera final: sustituimos "Jugador" por "Jugador" + "Equipo",
-  // y añadimos "Posición" al final.
-  const headerRow = [];
-  headers.forEach((h) => {
-    if (h === 'Jugador') {
-      headerRow.push('Jugador', 'Equipo');
-    } else {
-      headerRow.push(h);
-    }
+  // Esquema de salida FIJO: siempre estas columnas, en este orden,
+  // pase lo que pase en la web de origen. Si la web añade una columna
+  // nueva (como ha pasado hoy con "Próximo rival"), simplemente se
+  // ignora — así el CSV nunca se desalinea entre un día y otro.
+  const FIXED_DATA_COLUMNS = ['DiferenciaDif.', '% Dif', 'Acel.', 'Tend.', 'Valor', 'Valor ant.Ant.'];
+  const headerRow = ['Jugador', 'Equipo', ...FIXED_DATA_COLUMNS, 'Posición'];
+
+  // Mapa nombre de cabecera -> índice de columna en la tabla de hoy.
+  const colIndex = {};
+  headers.forEach((h, i) => {
+    if (!(h in colIndex)) colIndex[h] = i;
   });
-  headerRow.push('Posición');
+
+  // Aviso si la web ha quitado alguna columna que esperábamos, o ha
+  // añadido alguna nueva que no reconocemos (informativo, no rompe nada).
+  const columnasEsperadas = ['Jugador', ...FIXED_DATA_COLUMNS];
+  const faltantes = columnasEsperadas.filter((c) => !(c in colIndex));
+  if (faltantes.length) {
+    console.warn(`⚠️  Columnas esperadas que ya NO aparecen en la web: ${faltantes.join(', ')}`);
+  }
+  const desconocidas = headers.filter((h) => !columnasEsperadas.includes(h));
+  if (desconocidas.length) {
+    console.log(`ℹ️  Columnas nuevas en la web (ignoradas, no se guardan): ${desconocidas.join(', ')}`);
+  }
 
   // Filas
   const rows = [];
   $(bestTable)
     .find('tbody tr')
     .each((_, tr) => {
-      const cells = [];
-      let posicion = '';
-      $(tr)
-        .find('td')
-        .each((i, td) => {
-          const headerName = headers[i];
-          if (headerName === 'Jugador') {
-            const { jugador, equipo } = splitJugador($(td).text().trim().replace(/\s+/g, ' '));
-            posicion = extractPosicion(td);
-            cells.push(jugador, equipo);
-          } else {
-            cells.push(extractCell(td, headerName));
-          }
-        });
-      cells.push(posicion);
-      if (cells.length) rows.push(cells);
+      const tds = $(tr).find('td');
+      const jugadorIdx = colIndex['Jugador'];
+      if (jugadorIdx === undefined) return; // no hay forma de identificar esta fila
+      const tdJugador = tds.eq(jugadorIdx);
+
+      const { jugador, equipo } = splitJugador(tdJugador.text().trim().replace(/\s+/g, ' '));
+      const posicion = extractPosicion(tdJugador);
+
+      const row = [jugador, equipo];
+      for (const col of FIXED_DATA_COLUMNS) {
+        const idx = colIndex[col];
+        row.push(idx !== undefined ? extractCell(tds.eq(idx), col) : '');
+      }
+      row.push(posicion);
+      if (row.length) rows.push(row);
     });
 
   console.log(`Filas encontradas: ${rows.length}`);
